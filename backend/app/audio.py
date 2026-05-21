@@ -1,3 +1,5 @@
+"""Audio conversion and lightweight synthesis helpers used by the studio."""
+
 from __future__ import annotations
 
 import math
@@ -15,14 +17,20 @@ from .types import GenerationControls
 
 
 class AudioError(RuntimeError):
+    """Raised when user-provided or generated audio cannot be processed."""
+
     pass
 
 
 def ffmpeg_available() -> bool:
+    """Return whether an ffmpeg executable is available on the current PATH."""
+
     return shutil.which("ffmpeg") is not None
 
 
 def read_wav_mono(path: Path) -> Tuple[List[float], int]:
+    """Read any WAV channel layout into normalized mono float samples."""
+
     try:
         with wave.open(str(path), "rb") as wav:
             channels = wav.getnchannels()
@@ -48,6 +56,8 @@ def read_wav_mono(path: Path) -> Tuple[List[float], int]:
 
 
 def write_wav_mono(path: Path, samples: Sequence[float], sample_rate: int, sample_width: int = 3) -> None:
+    """Write normalized mono samples as PCM WAV at the requested bit depth."""
+
     path.parent.mkdir(parents=True, exist_ok=True)
     with wave.open(str(path), "wb") as wav:
         wav.setnchannels(1)
@@ -62,12 +72,15 @@ def convert_reference_audio(
     trim_start_ms: int = 0,
     trim_duration_ms: int = 10_000,
 ) -> None:
+    """Normalize an imported reference clip into the prompt WAV expected by TTS."""
+
     source_path = Path(source_path)
     target_path = Path(target_path)
     working_source = source_path
     temp_name = None
 
     if source_path.suffix.lower() != ".wav":
+        # Non-WAV imports go through ffmpeg first, then through the same WAV path.
         if not ffmpeg_available():
             raise AudioError("MP3/M4A import requires ffmpeg. Install ffmpeg, or import a WAV file first.")
         fd, temp_name = tempfile.mkstemp(suffix=".wav")
@@ -104,12 +117,15 @@ def convert_reference_audio(
     if len(trimmed) < sample_rate:
         raise AudioError("Reference audio should contain at least one second of clean speech.")
 
+    # The prompt file is conservative: mono, 24 kHz, 16-bit, peak-normalized.
     resampled = linear_resample(trimmed, sample_rate, PROMPT_SAMPLE_RATE)
     normalized = normalize_peak(resampled, ceiling=0.86)
     write_wav_mono(target_path, normalized, PROMPT_SAMPLE_RATE, sample_width=2)
 
 
 def postprocess_wav(source_path: Path, target_path: Path, controls: GenerationControls) -> None:
+    """Apply export-rate conversion and user controls to a generated WAV."""
+
     controls = controls.validated()
     if ffmpeg_available():
         try:
@@ -133,6 +149,8 @@ def synthesize_placeholder(
     controls: GenerationControls,
     voice_seed: int,
 ) -> None:
+    """Create a deterministic preview WAV when the real model is unavailable."""
+
     controls = controls.validated()
     seed = controls.seed if controls.seed is not None else voice_seed
     rng = random.Random(seed + len(text) * 31)
@@ -145,6 +163,7 @@ def synthesize_placeholder(
 
     emotion_boost = 1.0
     hint = controls.emotion_hint.lower()
+    # The preview engine is intentionally simple, but reacts to common emotion hints.
     if any(word in hint for word in ("angry", "excited", "快", "激动", "愤怒")):
         emotion_boost = 1.22
     elif any(word in hint for word in ("sad", "slow", "低落", "难过", "慢")):
@@ -170,11 +189,15 @@ def synthesize_placeholder(
 
 
 def duration_ms(path: Path) -> int:
+    """Return a WAV duration in milliseconds."""
+
     with wave.open(str(path), "rb") as wav:
         return int(wav.getnframes() / wav.getframerate() * 1000)
 
 
 def estimate_lufs(path: Path) -> float:
+    """Estimate perceived loudness with a simple RMS-based LUFS approximation."""
+
     samples, _ = read_wav_mono(path)
     if not samples:
         return -120.0
@@ -185,6 +208,8 @@ def estimate_lufs(path: Path) -> float:
 
 
 def linear_resample(samples: Sequence[float], source_rate: int, target_rate: int) -> List[float]:
+    """Resample using linear interpolation for dependency-free testability."""
+
     if source_rate == target_rate:
         return list(samples)
     if not samples:
@@ -202,11 +227,15 @@ def linear_resample(samples: Sequence[float], source_rate: int, target_rate: int
 
 
 def apply_gain(samples: Iterable[float], gain_db: float) -> List[float]:
+    """Apply decibel gain to normalized samples."""
+
     factor = 10 ** (gain_db / 20.0)
     return [sample * factor for sample in samples]
 
 
 def normalize_peak(samples: Sequence[float], ceiling: float = 0.98) -> List[float]:
+    """Scale samples down only when they exceed the requested peak ceiling."""
+
     peak = max((abs(sample) for sample in samples), default=0.0)
     if peak <= ceiling or peak == 0:
         return list(samples)
@@ -215,6 +244,8 @@ def normalize_peak(samples: Sequence[float], ceiling: float = 0.98) -> List[floa
 
 
 def _postprocess_with_ffmpeg(source_path: Path, target_path: Path, controls: GenerationControls) -> None:
+    """Use ffmpeg for higher-quality pitch, speed, gain, and padding work."""
+
     filters: List[str] = []
     pitch_factor = 2 ** (controls.pitch_semitones / 12.0)
     if abs(pitch_factor - 1.0) > 0.005:
@@ -251,6 +282,8 @@ def _postprocess_with_ffmpeg(source_path: Path, target_path: Path, controls: Gen
 
 
 def _decode_sample(chunk: bytes, sample_width: int) -> float:
+    """Decode PCM bytes into a normalized float sample."""
+
     if sample_width == 1:
         return (chunk[0] - 128) / 128.0
     if sample_width == 2:
@@ -264,6 +297,8 @@ def _decode_sample(chunk: bytes, sample_width: int) -> float:
 
 
 def _encode_sample(sample: float, sample_width: int) -> bytes:
+    """Encode a normalized float sample into little-endian PCM bytes."""
+
     sample = max(-1.0, min(1.0, sample))
     if sample_width == 2:
         value = int(sample * 32767)

@@ -1,9 +1,13 @@
+"""Development entrypoint for running the local FastAPI server."""
+
 from __future__ import annotations
 
 import sys
 
 
 def main() -> None:
+    """Start uvicorn with project-local defaults and a friendly dependency hint."""
+
     try:
         import uvicorn
     except ImportError:

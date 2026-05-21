@@ -31,6 +31,7 @@ import {
 } from "./api";
 import type { ExportResult, GenerationControls, GenerationJob, ModelStatus, Project, ScriptLine, VoiceProfile } from "./types";
 
+// Defaults match backend validation and give editors two candidates per line.
 const defaultControls: GenerationControls = {
   speed: 1,
   pitchSemitones: 0,
@@ -42,6 +43,7 @@ const defaultControls: GenerationControls = {
 };
 
 export default function App() {
+  // Top-level state is intentionally local; the backend persists durable project data.
   const [voices, setVoices] = useState<VoiceProfile[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [project, setProject] = useState<Project | null>(null);
@@ -63,16 +65,19 @@ export default function App() {
   });
   const [voiceFile, setVoiceFile] = useState<File | null>(null);
 
+  // Derived state keeps button disabling and header labels readable in JSX.
   const selectedVoice = useMemo(() => voices.find((voice) => voice.id === defaultVoiceId), [defaultVoiceId, voices]);
   const isGenerating = job?.status === "queued" || job?.status === "running";
   const activeProjectId = project?.id ?? "";
   const canGenerateProject = Boolean(project?.lines.length && voices.length && project.lines.every((line) => line.voiceId));
 
   useEffect(() => {
+    // Initial load hydrates model status, voices, and the most recent project.
     void refreshAll();
   }, []);
 
   useEffect(() => {
+    // Generation runs in the backend; polling keeps the UI responsive.
     if (!job?.id || job.status === "done" || job.status === "error") {
       return;
     }
@@ -93,6 +98,7 @@ export default function App() {
   }, [job?.id, job?.status, activeProjectId]);
 
   async function refreshAll() {
+    // Fetch independent sidebar/header data in parallel for a faster startup.
     try {
       setError("");
       const [nextModel, nextVoices, nextProjects] = await Promise.all([getModelStatus(), listVoices(), listProjects()]);
@@ -111,6 +117,7 @@ export default function App() {
   }
 
   async function refreshProject(projectId: string) {
+    // Project payloads include lines and clips, so one request refreshes the editor.
     const nextProject = await getProject(projectId);
     setProject(nextProject);
     setScriptText(nextProject.lines.map((line) => line.text).join("\n"));
@@ -125,6 +132,7 @@ export default function App() {
   }
 
   async function handleCreateProject() {
+    // Creating a project also makes it the active workspace immediately.
     try {
       setError("");
       const nextProject = await createProject(newProjectName);
@@ -137,6 +145,7 @@ export default function App() {
   }
 
   async function handleCreateVoice() {
+    // Reference text is required because clone prompts depend on aligned speech/text.
     if (!voiceFile) {
       setError("请选择参考音频文件。");
       return;
@@ -170,6 +179,7 @@ export default function App() {
   }
 
   async function handleSaveScript() {
+    // Saving script text replaces line rows and clears stale generated clips.
     if (!project) {
       setError("请先创建项目。");
       return;
@@ -185,6 +195,7 @@ export default function App() {
   }
 
   async function handleGenerate(lineIds: string[] = []) {
+    // Empty lineIds means whole-project generation; otherwise regenerate selected lines.
     if (!project) {
       setError("请先创建项目。");
       return;
@@ -207,6 +218,7 @@ export default function App() {
   }
 
   async function handleExport() {
+    // The backend exports only the selected candidate from each line.
     if (!project) {
       setError("请先创建项目。");
       return;
@@ -222,6 +234,7 @@ export default function App() {
   }
 
   async function handleLineSave(line: ScriptLine) {
+    // Per-line saves persist local edits to controls and voice selection.
     try {
       setError("");
       const updated = await updateLine(line.id, line.voiceId, line.controls);
@@ -240,6 +253,7 @@ export default function App() {
   }
 
   async function handleClipSelect(lineId: string, clipId: string) {
+    // Selection is optimistic in the UI after the backend accepts the chosen clip.
     try {
       await selectClip(clipId);
       setProject((current) =>
@@ -256,6 +270,7 @@ export default function App() {
   }
 
   function updateProjectLine(lineId: string, patch: Partial<ScriptLine>) {
+    // Local edits are staged in React until the user saves the line.
     setProject((current) =>
       current
         ? {
@@ -509,6 +524,7 @@ export default function App() {
 }
 
 function formatError(error: unknown): string {
+  // Preserve HTTP status codes for validation and server errors.
   if (error instanceof ApiError) {
     return `${error.status}: ${error.message}`;
   }
@@ -526,6 +542,7 @@ function ControlSlider(props: {
   value: number;
   onChange: (value: number) => void;
 }) {
+  // Shared slider keeps the main controls compact and numerically visible.
   return (
     <label className="control-field">
       <span>
@@ -538,6 +555,7 @@ function ControlSlider(props: {
 }
 
 function MiniNumber(props: { label: string; value: number; step: number; onChange: (value: number) => void }) {
+  // Compact per-line number input for quick overrides during review.
   return (
     <label className="mini-number">
       {props.label}

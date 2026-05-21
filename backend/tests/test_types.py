@@ -1,10 +1,16 @@
+"""Generation control parsing and validation tests."""
+
 import unittest
 
 from backend.app.types import GenerationControls
 
 
 class GenerationControlsTests(unittest.TestCase):
+    """Tests for user-facing generation parameter normalization."""
+
     def test_from_dict_accepts_api_and_snake_case_keys(self):
+        """Both API and internal key styles should hydrate the same controls."""
+
         controls = GenerationControls.from_dict(
             {
                 "speed": "1.23456",
@@ -26,6 +32,8 @@ class GenerationControlsTests(unittest.TestCase):
         self.assertEqual(controls.to_api()["variants"], 3)
 
     def test_validation_clamps_user_controls(self):
+        """Out-of-range values should be clamped before persistence or generation."""
+
         controls = GenerationControls.from_dict(
             {
                 "speed": 99,

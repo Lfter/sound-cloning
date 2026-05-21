@@ -1,3 +1,5 @@
+"""Filesystem and audio constants shared by the backend."""
+
 from __future__ import annotations
 
 import os
@@ -7,6 +9,8 @@ from pathlib import Path
 
 @dataclass(frozen=True)
 class StudioPaths:
+    """All paths the backend needs, injectable so tests never touch real data."""
+
     workspace_root: Path
     data_dir: Path
     models_dir: Path
@@ -19,6 +23,8 @@ class StudioPaths:
 
     @classmethod
     def from_env(cls) -> "StudioPaths":
+        """Build paths from environment variables with project-local defaults."""
+
         backend_root = Path(__file__).resolve().parents[1]
         workspace_root = backend_root.parent
         data_dir = Path(os.environ.get("VOICE_STUDIO_DATA_DIR", workspace_root / "data"))
@@ -36,6 +42,8 @@ class StudioPaths:
         )
 
     def ensure(self) -> None:
+        """Create runtime directories before database or audio operations."""
+
         for path in (
             self.data_dir,
             self.models_dir,

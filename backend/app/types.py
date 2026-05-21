@@ -1,3 +1,5 @@
+"""Dataclasses that define backend controls and core domain records."""
+
 from __future__ import annotations
 
 import json
@@ -6,11 +8,15 @@ from typing import Any, Dict, Optional
 
 
 def clamp(value: float, low: float, high: float) -> float:
+    """Clamp numeric user input to an inclusive range."""
+
     return min(high, max(low, value))
 
 
 @dataclass
 class GenerationControls:
+    """User-facing generation controls with validation and API conversion."""
+
     speed: float = 1.0
     pitch_semitones: float = 0.0
     gain_db: float = 0.0
@@ -21,6 +27,8 @@ class GenerationControls:
 
     @classmethod
     def from_dict(cls, payload: Optional[Dict[str, Any]]) -> "GenerationControls":
+        """Accept both frontend camelCase keys and backend snake_case keys."""
+
         payload = payload or {}
         controls = cls(
             speed=float(payload.get("speed", 1.0)),
@@ -34,6 +42,8 @@ class GenerationControls:
         return controls.validated()
 
     def validated(self) -> "GenerationControls":
+        """Return a safe copy with all values clamped to product limits."""
+
         seed = None if self.seed in ("", None) else int(self.seed)
         return GenerationControls(
             speed=round(clamp(float(self.speed), 0.55, 1.75), 3),
@@ -46,9 +56,13 @@ class GenerationControls:
         )
 
     def to_json(self) -> str:
+        """Serialize controls in the frontend/API field naming convention."""
+
         return json.dumps(self.to_api(), ensure_ascii=False)
 
     def to_api(self) -> Dict[str, Any]:
+        """Return controls as the camelCase object consumed by React."""
+
         data = asdict(self.validated())
         return {
             "speed": data["speed"],
@@ -63,6 +77,8 @@ class GenerationControls:
 
 @dataclass
 class VoiceProfile:
+    """Stored voice reference and prompt-audio metadata."""
+
     id: str
     name: str
     reference_audio_path: str
@@ -76,6 +92,8 @@ class VoiceProfile:
 
 @dataclass
 class ScriptLine:
+    """One generated-audio unit from the pasted script."""
+
     id: str
     project_id: str
     line_index: int
@@ -87,6 +105,8 @@ class ScriptLine:
 
 @dataclass
 class GeneratedClip:
+    """One generated WAV candidate for a script line."""
+
     id: str
     project_id: str
     script_line_id: str

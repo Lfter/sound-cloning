@@ -3,6 +3,8 @@ import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+// Resolve everything from the repository root so Tauri and npm can call this
+// script from different working directories.
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const viteBin = join(root, "node_modules", "vite", "bin", "vite.js");
 const pythonBin = join(root, ".venv", "bin", "python");
@@ -14,6 +16,7 @@ if (!existsSync(viteBin)) {
   process.exit(1);
 }
 
+// Run backend and frontend side by side; if either exits with an error, stop both.
 const children = [
   spawn(pythonBin, ["-m", "backend.app.dev_server"], {
     cwd: root,
@@ -32,6 +35,7 @@ const children = [
 ];
 
 function stopAll(signal = "SIGTERM") {
+  // Child processes may already have exited, so kill only live handles.
   for (const child of children) {
     if (!child.killed) {
       child.kill(signal);
@@ -41,6 +45,7 @@ function stopAll(signal = "SIGTERM") {
 
 for (const child of children) {
   child.on("exit", (code) => {
+    // A non-zero child exit means the dev session is no longer healthy.
     if (code && code !== 0) {
       stopAll();
       process.exit(code);
@@ -49,11 +54,13 @@ for (const child of children) {
 }
 
 process.on("SIGINT", () => {
+  // Forward terminal interrupts so uvicorn and Vite can clean up.
   stopAll("SIGINT");
   process.exit(130);
 });
 
 process.on("SIGTERM", () => {
+  // Tauri may terminate this process directly during shutdown.
   stopAll("SIGTERM");
   process.exit(143);
 });

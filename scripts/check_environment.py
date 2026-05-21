@@ -1,3 +1,5 @@
+"""Print a quick readiness report for the project-local toolchain."""
+
 from __future__ import annotations
 
 import importlib.util
@@ -11,6 +13,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def command_version(command: str, env: dict[str, str] | None = None) -> str:
+    """Return the first --version line for a command, or 'missing'."""
+
     if shutil.which(command) is None:
         return "missing"
     try:
@@ -21,6 +25,8 @@ def command_version(command: str, env: dict[str, str] | None = None) -> str:
 
 
 def module_status(module: str, python: Path | None = None) -> str:
+    """Check whether a Python module is importable in the chosen interpreter."""
+
     if python is None:
         return "ok" if importlib.util.find_spec(module) else "missing"
     result = subprocess.run(
@@ -33,6 +39,8 @@ def module_status(module: str, python: Path | None = None) -> str:
 
 
 def main() -> None:
+    """Report global and bundled runtime availability in one readable block."""
+
     local_npm = ROOT / "scripts" / "npm-local.sh"
     local_node = ROOT / ".tools" / "node-v24.15.0-darwin-arm64" / "bin" / "node"
     local_cargo = ROOT / ".cargo" / "bin" / "cargo"

@@ -1,3 +1,5 @@
+"""Script splitting and export filename helpers."""
+
 from __future__ import annotations
 
 import re
@@ -45,6 +47,8 @@ def split_script(text: str, max_chars: int = 84) -> List[str]:
 
 
 def _hard_wrap(text: str, max_chars: int) -> Iterable[str]:
+    """Fallback splitter for long text without sentence punctuation."""
+
     for start in range(0, len(text), max_chars):
         chunk = text[start : start + max_chars].strip()
         if chunk:
@@ -52,6 +56,8 @@ def _hard_wrap(text: str, max_chars: int) -> Iterable[str]:
 
 
 def safe_filename(index: int, text: str, extension: str = ".wav", max_text_chars: int = 24) -> str:
+    """Build a filesystem-safe exported WAV name from line index and text."""
+
     cleaned = BAD_FILENAME_CHARS.sub("", text).strip()
     cleaned = re.sub(r"\s+", "_", cleaned)[:max_text_chars].strip("._ ")
     if not cleaned:

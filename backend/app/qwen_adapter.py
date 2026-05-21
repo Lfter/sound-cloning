@@ -1,3 +1,5 @@
+"""Best-effort adapter around local Qwen3-TTS / MLX inference."""
+
 from __future__ import annotations
 
 import gc
@@ -24,6 +26,8 @@ MODEL_CANDIDATES = (
 
 @dataclass
 class AdapterStatus:
+    """Public model availability payload returned by the API."""
+
     backend: str
     available: bool
     model_path: str
@@ -31,6 +35,8 @@ class AdapterStatus:
     candidate_models: list[str]
 
     def to_api(self) -> Dict[str, Any]:
+        """Convert adapter status to the frontend API shape."""
+
         return {
             "backend": self.backend,
             "available": self.available,
@@ -57,6 +63,8 @@ class Qwen3TTSAdapter:
         self._lock = threading.Lock()
 
     def status(self) -> AdapterStatus:
+        """Check whether model weights and MLX runtime are usable."""
+
         model_path = self._resolve_model_path()
         candidates = [str(path) for path in self._candidate_model_paths()]
         if not model_path:
@@ -101,6 +109,8 @@ class Qwen3TTSAdapter:
         output_path: Path,
         variant_index: int,
     ) -> str:
+        """Generate speech with MLX when possible, otherwise create preview audio."""
+
         controls = controls.validated()
         with self._lock:
             status = self.status()
@@ -122,6 +132,8 @@ class Qwen3TTSAdapter:
         controls: GenerationControls,
         output_path: Path,
     ) -> str:
+        """Run the community MLX generator and normalize its WAV output."""
+
         _, generate_audio = self._import_mlx()
         model_path = self._load_model_with_fallback()
 
@@ -149,10 +161,14 @@ class Qwen3TTSAdapter:
         return "mlx-audio"
 
     def _resolve_model_path(self) -> Optional[Path]:
+        """Return the highest-priority model folder available locally."""
+
         candidates = self._candidate_model_paths()
         return candidates[0] if candidates else None
 
     def _candidate_model_paths(self) -> list[Path]:
+        """List model candidates that exist under the configured models dir."""
+
         candidates: list[Path] = []
         for folder in MODEL_CANDIDATES:
             candidate = self.paths.models_dir / folder
@@ -162,6 +178,8 @@ class Qwen3TTSAdapter:
         return candidates
 
     def _load_model_with_fallback(self) -> Path:
+        """Try model candidates in order and remember the loaded model object."""
+
         load_model, _ = self._import_mlx()
         candidates = self._candidate_model_paths()
         if not candidates:
@@ -187,6 +205,8 @@ class Qwen3TTSAdapter:
 
     @staticmethod
     def _import_mlx() -> Any:
+        """Import MLX lazily so preview mode still works without the dependency."""
+
         from mlx_audio.tts.generate import generate_audio
         from mlx_audio.tts.utils import load_model
 
@@ -194,6 +214,8 @@ class Qwen3TTSAdapter:
 
 
 def _resolve_snapshot(path: Path) -> Optional[Path]:
+    """Support both direct model folders and Hugging Face snapshot layouts."""
+
     if not path.exists():
         return None
     snapshots = path / "snapshots"
@@ -205,5 +227,7 @@ def _resolve_snapshot(path: Path) -> Optional[Path]:
 
 
 def copy_export_clip(source: Path, target: Path) -> None:
+    """Copy a selected clip into the user-facing export folder."""
+
     target.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(source, target)

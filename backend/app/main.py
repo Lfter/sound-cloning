@@ -1,3 +1,5 @@
+"""FastAPI routes for the local Voice Patch Studio backend."""
+
 from __future__ import annotations
 
 import os
@@ -20,31 +22,43 @@ router = APIRouter()
 
 
 class CreateProjectPayload(BaseModel):
+    """Request body for creating a project."""
+
     name: str = Field(default="剪辑补录项目", max_length=120)
 
 
 class SaveScriptPayload(BaseModel):
+    """Request body for replacing project script lines."""
+
     text: str = Field(default="", max_length=40_000)
     voiceId: str = Field(default="", max_length=80)
     controls: Dict[str, Any] = Field(default_factory=dict)
 
 
 class UpdateLinePayload(BaseModel):
+    """Request body for editing a single script line."""
+
     voiceId: Optional[str] = Field(default=None, max_length=80)
     controls: Optional[Dict[str, Any]] = None
 
 
 class GeneratePayload(BaseModel):
+    """Request body for starting project or line-level generation."""
+
     projectId: str = Field(min_length=1, max_length=80)
     lineIds: List[str] = Field(default_factory=list, max_length=500)
 
 
 class ExportPayload(BaseModel):
+    """Request body for exporting selected clips."""
+
     projectId: str = Field(min_length=1, max_length=80)
     name: str = Field(default="", max_length=120)
 
 
 def _cors_origins() -> List[str]:
+    """Read allowed frontend origins from env, with local defaults."""
+
     configured = os.environ.get("VOICE_STUDIO_CORS_ORIGINS", "")
     if not configured.strip():
         return list(DEFAULT_CORS_ORIGINS)
@@ -52,6 +66,8 @@ def _cors_origins() -> List[str]:
 
 
 def create_app(studio_service: Optional[VoiceStudioService] = None) -> FastAPI:
+    """Create an app with an injectable service for tests and local runs."""
+
     app = FastAPI(title="Voice Patch Studio API", version="0.1.0")
     app.state.service = studio_service or VoiceStudioService()
     app.add_middleware(
@@ -66,20 +82,28 @@ def create_app(studio_service: Optional[VoiceStudioService] = None) -> FastAPI:
 
 
 def get_service(request: Request) -> VoiceStudioService:
+    """Resolve the per-app service instance used by route handlers."""
+
     return request.app.state.service
 
 
 def _not_found(exc: KeyError) -> HTTPException:
+    """Convert service KeyErrors into clean 404 responses."""
+
     return HTTPException(status_code=404, detail=str(exc).strip("'"))
 
 
 @router.get("/health")
 def health(studio: VoiceStudioService = Depends(get_service)) -> Dict[str, Any]:
+    """Return service health, paths, and model readiness."""
+
     return studio.health()
 
 
 @router.get("/model-status")
 def model_status(studio: VoiceStudioService = Depends(get_service)) -> Dict[str, Any]:
+    """Return model adapter status for the header and setup checks."""
+
     return studio.model_status()
 
 
@@ -94,6 +118,8 @@ async def create_voice(
     trimDurationMs: int = Form(10_000, ge=1_000, le=60_000),
     studio: VoiceStudioService = Depends(get_service),
 ) -> Dict[str, Any]:
+    """Upload and normalize a reference recording into the voice library."""
+
     suffix = Path(file.filename or "reference.wav").suffix or ".wav"
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         shutil.copyfileobj(file.file, tmp)
@@ -117,21 +143,29 @@ async def create_voice(
 
 @router.get("/voices")
 def list_voices(studio: VoiceStudioService = Depends(get_service)) -> List[Dict[str, Any]]:
+    """List saved voices for selection controls."""
+
     return studio.list_voices()
 
 
 @router.post("/projects")
 def create_project(payload: CreateProjectPayload, studio: VoiceStudioService = Depends(get_service)) -> Dict[str, Any]:
+    """Create a new editing project."""
+
     return studio.create_project(payload.name)
 
 
 @router.get("/projects")
 def list_projects(studio: VoiceStudioService = Depends(get_service)) -> List[Dict[str, Any]]:
+    """List projects for the project selector."""
+
     return studio.list_projects()
 
 
 @router.get("/projects/{project_id}")
 def get_project(project_id: str, studio: VoiceStudioService = Depends(get_service)) -> Dict[str, Any]:
+    """Load one project with script lines and generated clips."""
+
     try:
         return studio.get_project(project_id)
     except KeyError as exc:
@@ -140,6 +174,8 @@ def get_project(project_id: str, studio: VoiceStudioService = Depends(get_servic
 
 @router.put("/projects/{project_id}/script")
 def save_script(project_id: str, payload: SaveScriptPayload, studio: VoiceStudioService = Depends(get_service)) -> Dict[str, Any]:
+    """Replace a project's script text and default generation settings."""
+
     try:
         return studio.save_script(project_id, payload.text, payload.voiceId, payload.controls)
     except KeyError as exc:
@@ -148,6 +184,8 @@ def save_script(project_id: str, payload: SaveScriptPayload, studio: VoiceStudio
 
 @router.patch("/script-lines/{line_id}")
 def update_script_line(line_id: str, payload: UpdateLinePayload, studio: VoiceStudioService = Depends(get_service)) -> Dict[str, Any]:
+    """Update voice or controls for a single script line."""
+
     try:
         return studio.update_script_line(line_id, payload.voiceId, payload.controls)
     except KeyError as exc:
@@ -156,6 +194,8 @@ def update_script_line(line_id: str, payload: UpdateLinePayload, studio: VoiceSt
 
 @router.post("/generate")
 def generate(payload: GeneratePayload, studio: VoiceStudioService = Depends(get_service)) -> Dict[str, Any]:
+    """Start a background generation job."""
+
     try:
         return studio.start_generation(payload.projectId, payload.lineIds)
     except KeyError as exc:
@@ -164,6 +204,8 @@ def generate(payload: GeneratePayload, studio: VoiceStudioService = Depends(get_
 
 @router.get("/jobs/{job_id}")
 def get_job(job_id: str, studio: VoiceStudioService = Depends(get_service)) -> Dict[str, Any]:
+    """Return a generation job for frontend polling."""
+
     try:
         return studio.get_job(job_id)
     except KeyError as exc:
@@ -172,6 +214,8 @@ def get_job(job_id: str, studio: VoiceStudioService = Depends(get_service)) -> D
 
 @router.post("/clips/{clip_id}/select")
 def select_clip(clip_id: str, studio: VoiceStudioService = Depends(get_service)) -> Dict[str, Any]:
+    """Select a candidate clip for its script line."""
+
     try:
         return studio.select_clip(clip_id)
     except KeyError as exc:
@@ -180,6 +224,8 @@ def select_clip(clip_id: str, studio: VoiceStudioService = Depends(get_service))
 
 @router.get("/clips/{clip_id}/audio")
 def clip_audio(clip_id: str, studio: VoiceStudioService = Depends(get_service)) -> FileResponse:
+    """Stream a generated WAV clip to the browser audio control."""
+
     try:
         path = studio.clip_path(clip_id)
     except KeyError as exc:
@@ -191,6 +237,8 @@ def clip_audio(clip_id: str, studio: VoiceStudioService = Depends(get_service)) 
 
 @router.post("/export")
 def export_project(payload: ExportPayload, studio: VoiceStudioService = Depends(get_service)) -> Dict[str, Any]:
+    """Export selected clips and return the manifest location."""
+
     try:
         return studio.export_project(payload.projectId, payload.name)
     except KeyError as exc:

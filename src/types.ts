@@ -1,4 +1,7 @@
+// API contracts shared by React components and the backend JSON responses.
+
 export type ModelStatus = {
+  // `available` means the real model path and runtime dependency were detected.
   backend: string;
   available: boolean;
   modelPath: string;
@@ -7,6 +10,7 @@ export type ModelStatus = {
 };
 
 export type VoiceProfile = {
+  // Voice records keep both the original import and the normalized prompt WAV.
   id: string;
   name: string;
   referenceAudioPath: string;
@@ -19,6 +23,7 @@ export type VoiceProfile = {
 };
 
 export type GenerationControls = {
+  // These limits are mirrored by backend validation before persistence/generation.
   speed: number;
   pitchSemitones: number;
   gainDb: number;
@@ -29,6 +34,7 @@ export type GenerationControls = {
 };
 
 export type GeneratedClip = {
+  // A line can have multiple generated candidates; one may be selected for export.
   id: string;
   projectId: string;
   scriptLineId: string;
@@ -43,6 +49,7 @@ export type GeneratedClip = {
 };
 
 export type ScriptLine = {
+  // Script lines are the editable unit for per-line voice and control overrides.
   id: string;
   projectId: string;
   lineIndex: number;
@@ -54,6 +61,7 @@ export type ScriptLine = {
 };
 
 export type Project = {
+  // The project payload is hydrated with lines to avoid extra frontend round trips.
   id: string;
   name: string;
   createdAt: string;
@@ -62,6 +70,7 @@ export type Project = {
 };
 
 export type GenerationJob = {
+  // Jobs are in-memory backend tasks polled by the frontend progress UI.
   id: string;
   projectId: string;
   status: "queued" | "running" | "done" | "error";
@@ -75,6 +84,7 @@ export type GenerationJob = {
 };
 
 export type ExportResult = {
+  // Paths point to local files created under the configured export directory.
   exportDir: string;
   manifestPath: string;
   files: string[];

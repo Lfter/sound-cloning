@@ -8,11 +8,13 @@ import type {
   VoiceProfile
 } from "./types";
 
+// Vite can override the backend host for packaged or remote-debug builds.
 const apiBaseFromEnv = (import.meta as ImportMeta & { readonly env?: Record<string, string | undefined> }).env?.VITE_API_BASE;
 
 export const API_BASE = (apiBaseFromEnv || "http://127.0.0.1:8787").replace(/\/+$/, "");
 
 export class ApiError extends Error {
+  /** HTTP status code from the backend response. */
   status: number;
 
   constructor(message: string, status: number) {
@@ -23,6 +25,8 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  // FormData must keep its browser-generated multipart boundary, so only JSON
+  // requests receive an explicit Content-Type.
   const response = await fetch(`${API_BASE}${path}`, {
     ...options,
     headers: {
@@ -36,6 +40,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
       const payload = await response.json();
       message = payload.detail ?? message;
     } catch {
+      // Fall back to raw text for validation or proxy errors that are not JSON.
       const text = await response.text().catch(() => "");
       message = text || message;
     }
@@ -48,10 +53,12 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   return (text ? JSON.parse(text) : undefined) as T;
 }
 
+// Backend and model readiness used by the header.
 export function getModelStatus(): Promise<ModelStatus> {
   return request<ModelStatus>("/model-status");
 }
 
+// Voice library endpoints back the left sidebar.
 export function listVoices(): Promise<VoiceProfile[]> {
   return request<VoiceProfile[]>("/voices");
 }
@@ -65,6 +72,7 @@ export function createVoice(payload: {
   trimStartMs: number;
   trimDurationMs: number;
 }): Promise<VoiceProfile> {
+  // Uploads use multipart form data because they include user audio files.
   const form = new FormData();
   form.append("file", payload.file);
   form.append("name", payload.name);
@@ -80,6 +88,7 @@ export function createProject(name: string): Promise<Project> {
   return request<Project>("/projects", { method: "POST", body: JSON.stringify({ name }) });
 }
 
+// Project payloads include script lines and generated clips.
 export function listProjects(): Promise<Project[]> {
   return request<Project[]>("/projects");
 }
@@ -103,6 +112,7 @@ export function updateLine(lineId: string, voiceId: string, controls: Generation
 }
 
 export function startGenerate(projectId: string, lineIds: string[] = []): Promise<GenerationJob> {
+  // Empty lineIds asks the backend to generate every line in the project.
   return request<GenerationJob>("/generate", {
     method: "POST",
     body: JSON.stringify({ projectId, lineIds })
@@ -125,5 +135,6 @@ export function exportProject(projectId: string, name = ""): Promise<ExportResul
 }
 
 export function audioUrl(path: string): string {
+  // Audio URLs are relative in API payloads so the frontend can swap API_BASE.
   return `${API_BASE}${path}`;
 }

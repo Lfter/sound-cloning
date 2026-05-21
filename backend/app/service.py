@@ -1,3 +1,5 @@
+"""Core application service for voices, projects, generation jobs, and exports."""
+
 from __future__ import annotations
 
 import csv
@@ -19,11 +21,15 @@ from .types import GenerationControls, GeneratedClip, ScriptLine, VoiceProfile
 
 
 def now_iso() -> str:
+    """Return an ISO timestamp in UTC for API and database records."""
+
     return datetime.now(timezone.utc).isoformat()
 
 
 @dataclass
 class GenerationJob:
+    """In-memory representation of a generation task shown to the frontend."""
+
     id: str
     project_id: str
     status: str = "queued"
@@ -36,6 +42,8 @@ class GenerationJob:
     updated_at: str = field(default_factory=now_iso)
 
     def to_api(self) -> Dict[str, Any]:
+        """Convert internal snake_case fields to the frontend API shape."""
+
         return {
             "id": self.id,
             "projectId": self.project_id,
@@ -51,21 +59,29 @@ class GenerationJob:
 
 
 class JobStore:
+    """Thread-safe in-memory job registry for the current backend process."""
+
     def __init__(self) -> None:
         self._jobs: Dict[str, GenerationJob] = {}
         self._lock = threading.Lock()
 
     def create(self, project_id: str) -> GenerationJob:
+        """Create a queued job for a project."""
+
         job = GenerationJob(id=str(uuid.uuid4()), project_id=project_id)
         with self._lock:
             self._jobs[job.id] = job
         return job
 
     def get(self, job_id: str) -> Optional[GenerationJob]:
+        """Fetch a job if it is still tracked by this process."""
+
         with self._lock:
             return self._jobs.get(job_id)
 
     def update(self, job_id: str, **changes: Any) -> GenerationJob:
+        """Patch job fields while keeping updated_at fresh."""
+
         with self._lock:
             job = self._jobs[job_id]
             for key, value in changes.items():
@@ -75,6 +91,8 @@ class JobStore:
 
 
 class VoiceStudioService:
+    """Business layer shared by FastAPI routes and unit tests."""
+
     def __init__(self, paths: Optional[StudioPaths] = None):
         self.paths = paths or StudioPaths.from_env()
         self.paths.ensure()
@@ -83,6 +101,8 @@ class VoiceStudioService:
         self.jobs = JobStore()
 
     def health(self) -> Dict[str, Any]:
+        """Expose runtime paths and model availability for startup checks."""
+
         return {
             "ok": True,
             "dataDir": str(self.paths.data_dir),
@@ -91,6 +111,8 @@ class VoiceStudioService:
         }
 
     def model_status(self) -> Dict[str, Any]:
+        """Return the current model adapter status."""
+
         return self.adapter.status().to_api()
 
     def create_voice(
@@ -104,6 +126,8 @@ class VoiceStudioService:
         trim_start_ms: int = 0,
         trim_duration_ms: int = DEFAULT_REFERENCE_DURATION_MS,
     ) -> Dict[str, Any]:
+        """Import a reference recording and register it as a reusable voice."""
+
         name = name.strip() or "Untitled Voice"
         voice_id = str(uuid.uuid4())
         voice_folder = self.paths.original_voice_dir / voice_id
@@ -137,16 +161,22 @@ class VoiceStudioService:
         return self.get_voice(voice_id)
 
     def get_voice(self, voice_id: str) -> Dict[str, Any]:
+        """Return one voice profile or raise KeyError for API 404 handling."""
+
         row = self.db.query_one("SELECT * FROM voices WHERE id = ?", (voice_id,))
         if not row:
             raise KeyError(f"Voice not found: {voice_id}")
         return _voice_row_to_api(row)
 
     def list_voices(self) -> List[Dict[str, Any]]:
+        """List voices newest first for the sidebar."""
+
         rows = self.db.query_all("SELECT * FROM voices ORDER BY created_at DESC")
         return [_voice_row_to_api(row) for row in rows]
 
     def create_project(self, name: str) -> Dict[str, Any]:
+        """Create an empty editing project."""
+
         project_id = str(uuid.uuid4())
         timestamp = now_iso()
         self.db.execute(
@@ -156,10 +186,14 @@ class VoiceStudioService:
         return self.get_project(project_id)
 
     def list_projects(self) -> List[Dict[str, Any]]:
+        """List projects by last update so recent work stays on top."""
+
         rows = self.db.query_all("SELECT * FROM projects ORDER BY updated_at DESC")
         return [_project_row_to_api(row) for row in rows]
 
     def get_project(self, project_id: str) -> Dict[str, Any]:
+        """Load a project with its script lines and generated clip candidates."""
+
         project = self.db.query_one("SELECT * FROM projects WHERE id = ?", (project_id,))
         if not project:
             raise KeyError(f"Project not found: {project_id}")
@@ -176,6 +210,7 @@ class VoiceStudioService:
             clips_by_line.setdefault(clip["script_line_id"], []).append(_clip_row_to_api(clip))
         api_lines = []
         for line in lines:
+            # Clip rows are grouped in memory to avoid repeated database calls per line.
             line_api = _line_row_to_api(line)
             line_api["clips"] = clips_by_line.get(line["id"], [])
             api_lines.append(line_api)
@@ -190,6 +225,8 @@ class VoiceStudioService:
         voice_id: str = "",
         controls: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
+        """Replace a project's script and clear stale generated clips."""
+
         if not self.db.query_one("SELECT id FROM projects WHERE id = ?", (project_id,)):
             raise KeyError(f"Project not found: {project_id}")
         default_voice_id = voice_id or _first_voice_id(self.db) or ""
@@ -216,6 +253,8 @@ class VoiceStudioService:
         voice_id: Optional[str] = None,
         controls: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
+        """Update per-line voice and generation controls without rewriting text."""
+
         row = self.db.query_one("SELECT * FROM script_lines WHERE id = ?", (line_id,))
         if not row:
             raise KeyError(f"Line not found: {line_id}")
@@ -233,6 +272,8 @@ class VoiceStudioService:
         return _line_row_to_api(next_row)
 
     def start_generation(self, project_id: str, line_ids: Optional[Iterable[str]] = None) -> Dict[str, Any]:
+        """Start background generation for a whole project or selected lines."""
+
         if not self.db.query_one("SELECT id FROM projects WHERE id = ?", (project_id,)):
             raise KeyError(f"Project not found: {project_id}")
         job = self.jobs.create(project_id)
@@ -242,12 +283,16 @@ class VoiceStudioService:
         return job.to_api()
 
     def get_job(self, job_id: str) -> Dict[str, Any]:
+        """Return public job state for polling."""
+
         job = self.jobs.get(job_id)
         if not job:
             raise KeyError(f"Job not found: {job_id}")
         return job.to_api()
 
     def select_clip(self, clip_id: str) -> Dict[str, Any]:
+        """Mark one generated candidate as the export choice for its line."""
+
         clip = self.db.query_one("SELECT * FROM clips WHERE id = ?", (clip_id,))
         if not clip:
             raise KeyError(f"Clip not found: {clip_id}")
@@ -258,12 +303,16 @@ class VoiceStudioService:
         return _clip_row_to_api(clip)
 
     def clip_path(self, clip_id: str) -> Path:
+        """Resolve a clip id to its WAV file on disk."""
+
         clip = self.db.query_one("SELECT wav_path FROM clips WHERE id = ?", (clip_id,))
         if not clip:
             raise KeyError(f"Clip not found: {clip_id}")
         return Path(clip["wav_path"])
 
     def export_project(self, project_id: str, export_name: str = "") -> Dict[str, Any]:
+        """Copy selected clips into an export folder and write a CSV manifest."""
+
         project = self.get_project(project_id)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         folder_name = export_name.strip() or f"{project['name']}_{timestamp}"
@@ -278,6 +327,7 @@ class VoiceStudioService:
             clip = _preferred_clip(line)
             if not clip:
                 continue
+            # Export filenames are stable and editor-friendly: line number plus text.
             target_name = safe_filename(line["lineIndex"], line["text"])
             target = export_dir / target_name
             copy_export_clip(Path(clip["wavPath"]), target)
@@ -335,6 +385,8 @@ class VoiceStudioService:
         }
 
     def _run_generation_job(self, job_id: str, requested_ids: List[str]) -> None:
+        """Worker entrypoint that keeps partial progress even if one line fails."""
+
         job = self.jobs.get(job_id)
         if job is None:
             return
@@ -371,6 +423,8 @@ class VoiceStudioService:
         prior_clip_ids: Optional[List[str]] = None,
         errors: Optional[List[str]] = None,
     ) -> List[str]:
+        """Generate all variants for a single script line and persist clip rows."""
+
         line = _line_row_to_dataclass(row)
         if not line.voice_id:
             raise ValueError("No voice selected.")
@@ -383,6 +437,7 @@ class VoiceStudioService:
         line_dir.mkdir(parents=True, exist_ok=True)
 
         with self.db.connect() as conn:
+            # Regenerating a line invalidates its old candidates and selection.
             conn.execute("DELETE FROM clips WHERE script_line_id = ?", (line.id,))
             conn.execute("UPDATE script_lines SET selected_clip_id = ? WHERE id = ?", ("", line.id))
 
@@ -393,6 +448,7 @@ class VoiceStudioService:
             output_path = line_dir / f"v{variant}.wav"
             variant_controls = GenerationControls.from_dict(controls.to_api())
             if variant_controls.seed is not None:
+                # A fixed seed still produces distinct candidates across variants.
                 variant_controls.seed += variant - 1
             if job_id:
                 self.jobs.update(
@@ -460,11 +516,15 @@ class VoiceStudioService:
 
 
 def _first_voice_id(db: Database) -> str:
+    """Return the newest voice id for default script assignment."""
+
     row = db.query_one("SELECT id FROM voices ORDER BY created_at DESC LIMIT 1")
     return row["id"] if row else ""
 
 
 def _voice_row_to_dataclass(row: Dict[str, Any]) -> VoiceProfile:
+    """Convert a database voice row to the adapter-facing dataclass."""
+
     return VoiceProfile(
         id=row["id"],
         name=row["name"],
@@ -479,6 +539,8 @@ def _voice_row_to_dataclass(row: Dict[str, Any]) -> VoiceProfile:
 
 
 def _line_row_to_dataclass(row: Dict[str, Any]) -> ScriptLine:
+    """Convert a database script row to the generation dataclass."""
+
     return ScriptLine(
         id=row["id"],
         project_id=row["project_id"],
@@ -491,6 +553,8 @@ def _line_row_to_dataclass(row: Dict[str, Any]) -> ScriptLine:
 
 
 def _voice_row_to_api(row: Dict[str, Any]) -> Dict[str, Any]:
+    """Convert a voice row to the camelCase API payload."""
+
     return {
         "id": row["id"],
         "name": row["name"],
@@ -505,6 +569,8 @@ def _voice_row_to_api(row: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _project_row_to_api(row: Dict[str, Any]) -> Dict[str, Any]:
+    """Convert a project row to the camelCase API payload."""
+
     return {
         "id": row["id"],
         "name": row["name"],
@@ -514,6 +580,8 @@ def _project_row_to_api(row: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _line_row_to_api(row: Dict[str, Any]) -> Dict[str, Any]:
+    """Convert a script line row to the frontend shape."""
+
     controls = GenerationControls.from_dict(json_loads(row["controls_json"]))
     return {
         "id": row["id"],
@@ -528,6 +596,8 @@ def _line_row_to_api(row: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _clip_row_to_api(row: Dict[str, Any]) -> Dict[str, Any]:
+    """Convert a generated clip row to the frontend shape."""
+
     return {
         "id": row["id"],
         "projectId": row["project_id"],
@@ -544,6 +614,8 @@ def _clip_row_to_api(row: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _preferred_clip(line: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Pick the selected clip for export, falling back to the first candidate."""
+
     clips = line.get("clips", [])
     if not clips:
         return None
@@ -555,6 +627,8 @@ def _preferred_clip(line: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
 
 def _unique_dir(path: Path) -> Path:
+    """Return a non-existing directory path by adding a numeric suffix if needed."""
+
     if not path.exists():
         return path
     for index in range(2, 1_000):

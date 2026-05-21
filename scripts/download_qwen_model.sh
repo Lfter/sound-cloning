@@ -7,6 +7,7 @@ BASE_URL="https://huggingface.co/mlx-community/Qwen3-TTS-12Hz-0.6B-Base-8bit/res
 
 mkdir -p "$MODEL_DIR/speech_tokenizer"
 
+# Download one model file with resume/retry support so large weights survive flaky links.
 download_file() {
   rel="$1"
   target="$MODEL_DIR/$rel"
@@ -20,6 +21,7 @@ download_file() {
   fi
 
   echo "download $rel"
+  # Keep partial files separate until curl exits successfully.
   curl -4 --http1.1 \
     --location \
     --fail \
@@ -35,6 +37,7 @@ download_file() {
   mv "$partial" "$target"
 }
 
+# Keep this list explicit; it doubles as documentation of the expected model layout.
 download_file ".gitattributes"
 download_file "README.md"
 download_file "config.json"

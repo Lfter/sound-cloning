@@ -1,3 +1,5 @@
+"""Service-level tests for the local voice generation workflow."""
+
 import csv
 import tempfile
 import unittest
@@ -8,7 +10,11 @@ from helpers import create_voice, make_paths
 
 
 class ServiceTests(unittest.TestCase):
+    """End-to-end service tests using temporary data and preview audio."""
+
     def test_create_voice_generate_and_export(self):
+        """A happy path can import a voice, generate variants, and export a manifest."""
+
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             service = VoiceStudioService(make_paths(root))
@@ -32,6 +38,8 @@ class ServiceTests(unittest.TestCase):
             self.assertTrue(Path(export["manifestPath"]).exists())
 
     def test_save_script_replaces_stale_lines_and_clips(self):
+        """Saving new script text should remove outdated lines and clip rows."""
+
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             service = VoiceStudioService(make_paths(root))
@@ -48,6 +56,8 @@ class ServiceTests(unittest.TestCase):
             self.assertEqual(service.db.query_all("SELECT * FROM clips"), [])
 
     def test_update_script_line_merges_and_clamps_controls(self):
+        """Line updates should merge partial controls and preserve existing values."""
+
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             service = VoiceStudioService(make_paths(root))
@@ -80,6 +90,8 @@ class ServiceTests(unittest.TestCase):
             self.assertEqual(len(updated["controls"]["emotionHint"]), 160)
 
     def test_select_clip_controls_export_manifest_variant(self):
+        """The selected candidate should be the one copied into exports."""
+
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             service = VoiceStudioService(make_paths(root))
@@ -101,6 +113,8 @@ class ServiceTests(unittest.TestCase):
             self.assertTrue(Path(export["files"][0]).exists())
 
     def test_export_project_uses_unique_folder_names(self):
+        """Repeated named exports should never overwrite an earlier export folder."""
+
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             service = VoiceStudioService(make_paths(root))
@@ -118,6 +132,8 @@ class ServiceTests(unittest.TestCase):
             self.assertTrue(Path(second["manifestPath"]).exists())
 
     def test_generation_job_reports_missing_voice_error(self):
+        """Jobs should surface missing voice selections as recoverable line errors."""
+
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             service = VoiceStudioService(make_paths(root))

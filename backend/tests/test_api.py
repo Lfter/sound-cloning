@@ -1,3 +1,5 @@
+"""API route tests that exercise FastAPI validation and response shapes."""
+
 import tempfile
 import unittest
 
@@ -8,21 +10,30 @@ from helpers import make_service, write_reference
 
 
 class ApiTests(unittest.TestCase):
+    """Tests for route-level behavior using an isolated app instance."""
+
     def setUp(self):
+        # Each test gets its own service so global app state cannot leak data.
         self.tmp = tempfile.TemporaryDirectory()
         self.service = make_service(self.root)
         self.client = TestClient(api_module.create_app(self.service))
 
     def tearDown(self):
+        """Release temporary files created by FastAPI and service operations."""
+
         self.tmp.cleanup()
 
     @property
     def root(self):
+        """Return the temporary workspace as a Path for helpers."""
+
         from pathlib import Path
 
         return Path(self.tmp.name)
 
     def test_health_and_model_status_use_isolated_service(self):
+        """Health endpoints should reflect the injected temporary service."""
+
         health = self.client.get("/health")
         self.assertEqual(health.status_code, 200)
         self.assertTrue(health.json()["ok"])
@@ -34,6 +45,8 @@ class ApiTests(unittest.TestCase):
         self.assertIn("candidateModels", model.json())
 
     def test_project_routes_save_script_and_report_missing_project(self):
+        """Project routes should create, save script lines, and map 404s cleanly."""
+
         created = self.client.post("/projects", json={"name": "API Project"})
         self.assertEqual(created.status_code, 200)
         project_id = created.json()["id"]
@@ -51,11 +64,15 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(missing.json()["detail"], "Project not found: not-found")
 
     def test_request_validation_rejects_unbounded_inputs(self):
+        """Pydantic limits should reject oversized request payloads before service work."""
+
         response = self.client.post("/projects", json={"name": "x" * 121})
 
         self.assertEqual(response.status_code, 422)
 
     def test_voice_upload_and_clip_audio_route(self):
+        """Voice upload plus generated clip playback should work through HTTP routes."""
+
         reference = write_reference(self.root / "api-reference.wav")
         with reference.open("rb") as handle:
             response = self.client.post(

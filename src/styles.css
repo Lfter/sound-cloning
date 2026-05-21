@@ -1,4 +1,5 @@
 :root {
+  /* Base palette is neutral so audio content and controls stay easy to scan. */
   color: #1f2628;
   background: #eef2f1;
   font-family:
@@ -8,6 +9,7 @@
 }
 
 * {
+  /* Predictable sizing matters for dense editor-style panels. */
   box-sizing: border-box;
 }
 
@@ -22,9 +24,11 @@ button,
 input,
 select,
 textarea {
+  /* Controls inherit the app font instead of browser defaults. */
   font: inherit;
 }
 
+/* Shared form/control primitives */
 button {
   border: 1px solid #c8d1d3;
   border-radius: 7px;
@@ -90,6 +94,7 @@ label {
 }
 
 .app-shell {
+  /* Header, banners, workspace, and footer occupy stable rows. */
   min-height: 100vh;
   display: grid;
   grid-template-rows: auto auto auto 1fr auto;
@@ -134,6 +139,7 @@ label {
 }
 
 .workspace {
+  /* Desktop-first layout: voice library on the left, project editor on the right. */
   display: grid;
   grid-template-columns: 312px 1fr;
   gap: 18px;
@@ -143,6 +149,7 @@ label {
 
 .side-panel,
 .main-panel {
+  /* Prevent long paths/audio controls from forcing columns wider. */
   min-width: 0;
 }
 
@@ -230,6 +237,7 @@ label {
 }
 
 .controls-grid {
+  /* Repeats keep core generation controls aligned across the editor width. */
   display: grid;
   grid-template-columns: repeat(3, minmax(180px, 1fr));
   gap: 12px;
@@ -325,6 +333,7 @@ label {
 }
 
 .line-controls {
+  /* Fixed tool columns prevent buttons from shifting as values change. */
   display: grid;
   grid-template-columns: minmax(160px, 230px) repeat(3, 86px) 36px 36px;
   gap: 8px;
@@ -345,6 +354,7 @@ label {
 }
 
 .clip {
+  /* Clip rows expose select, version, playback, and metrics in one scan line. */
   display: grid;
   grid-template-columns: 36px 34px minmax(240px, 1fr) 128px;
   align-items: center;
@@ -388,6 +398,7 @@ footer {
 }
 
 @keyframes spin {
+  /* Loading icon animation for active generation jobs. */
   from {
     transform: rotate(0deg);
   }
