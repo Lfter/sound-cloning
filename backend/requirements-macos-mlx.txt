@@ -1,0 +1,5 @@
+mlx>=0.30
+mlx-lm>=0.30
+mlx-audio @ git+https://github.com/Blaizzy/mlx-audio.git
+soundfile>=0.13
+numpy>=2.0

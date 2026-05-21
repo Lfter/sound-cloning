@@ -1,0 +1,31 @@
+{
+  "name": "voice-patch-studio",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "CARGO_HOME=$PWD/.cargo RUSTUP_HOME=$PWD/.rustup PATH=$PWD/.tools/node-v24.15.0-darwin-arm64/bin:$PWD/.cargo/bin:$PWD/.venv/bin:$PATH tauri dev",
+    "dev:services": "node scripts/dev.mjs",
+    "dev:web": "vite --host 127.0.0.1 --port 5173",
+    "build": "CARGO_HOME=$PWD/.cargo RUSTUP_HOME=$PWD/.rustup PATH=$PWD/.tools/node-v24.15.0-darwin-arm64/bin:$PWD/.cargo/bin:$PWD/.venv/bin:$PATH tauri build",
+    "build:web": "tsc && vite build",
+    "backend": "PATH=.venv/bin:$PATH .venv/bin/python -m backend.app.dev_server",
+    "test": "npm run test:backend && npm run build:web && npm run test:tauri",
+    "test:backend": "PATH=.venv/bin:$PATH .venv/bin/python -m unittest discover -s backend/tests -v",
+    "test:tauri": "CARGO_HOME=$PWD/.cargo RUSTUP_HOME=$PWD/.rustup PATH=$PWD/.tools/node-v24.15.0-darwin-arm64/bin:$PWD/.cargo/bin:$PWD/.venv/bin:$PATH cargo test --manifest-path src-tauri/Cargo.toml"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.5.0",
+    "lucide-react": "^0.468.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.5.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.7"
+  }
+}

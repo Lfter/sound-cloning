@@ -1,0 +1,31 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Voice Patch Studio",
+  "version": "0.1.0",
+  "identifier": "local.voice-patch-studio",
+  "build": {
+    "beforeDevCommand": "node scripts/dev.mjs",
+    "devUrl": "http://127.0.0.1:5173",
+    "beforeBuildCommand": "npm run build:web",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Voice Patch Studio",
+        "width": 1440,
+        "height": 940,
+        "minWidth": 1180,
+        "minHeight": 760,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app"]
+  }
+}
