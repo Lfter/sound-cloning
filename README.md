@@ -30,6 +30,18 @@ scripts/npm-local.sh run dev
 scripts/npm-local.sh run backend
 ```
 
+前端默认连接 `http://127.0.0.1:8787`。如果后端端口或主机不同，可以在启动前设置：
+
+```bash
+VITE_API_BASE=http://127.0.0.1:8787 scripts/npm-local.sh run dev:web
+```
+
+后端 CORS 默认允许本地 Vite 与 Tauri；如需额外来源，可设置：
+
+```bash
+VOICE_STUDIO_CORS_ORIGINS=http://127.0.0.1:5173,tauri://localhost scripts/npm-local.sh run backend
+```
+
 已验证可以构建 macOS App，构建产物位于：
 
 ```text

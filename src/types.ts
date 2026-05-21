@@ -3,6 +3,7 @@ export type ModelStatus = {
   available: boolean;
   modelPath: string;
   message: string;
+  candidateModels: string[];
 };
 
 export type VoiceProfile = {

@@ -100,6 +100,23 @@ class ServiceTests(unittest.TestCase):
             self.assertEqual(rows[0]["variant"], "2")
             self.assertTrue(Path(export["files"][0]).exists())
 
+    def test_export_project_uses_unique_folder_names(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            service = VoiceStudioService(make_paths(root))
+            voice = create_voice(service, root)
+            project = service.create_project("Export Collision")
+            project = service.save_script(project["id"], "同名导出不应该覆盖。", voice_id=voice["id"], controls={"variants": 1})
+            job = service.jobs.create(project["id"])
+            service._run_generation_job(job.id, [])
+
+            first = service.export_project(project["id"], "fixed-name")
+            second = service.export_project(project["id"], "fixed-name")
+
+            self.assertNotEqual(first["exportDir"], second["exportDir"])
+            self.assertTrue(Path(first["manifestPath"]).exists())
+            self.assertTrue(Path(second["manifestPath"]).exists())
+
     def test_generation_job_reports_missing_voice_error(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

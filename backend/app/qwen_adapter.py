@@ -28,6 +28,7 @@ class AdapterStatus:
     available: bool
     model_path: str
     message: str
+    candidate_models: list[str]
 
     def to_api(self) -> Dict[str, Any]:
         return {
@@ -35,6 +36,7 @@ class AdapterStatus:
             "available": self.available,
             "modelPath": self.model_path,
             "message": self.message,
+            "candidateModels": self.candidate_models,
         }
 
 
@@ -56,12 +58,14 @@ class Qwen3TTSAdapter:
 
     def status(self) -> AdapterStatus:
         model_path = self._resolve_model_path()
+        candidates = [str(path) for path in self._candidate_model_paths()]
         if not model_path:
             return AdapterStatus(
                 backend="preview",
                 available=False,
                 model_path="",
                 message="No Qwen3-TTS Base model found in models/. Preview WAV generation is active.",
+                candidate_models=candidates,
             )
         try:
             self._import_mlx()
@@ -71,6 +75,7 @@ class Qwen3TTSAdapter:
                 available=False,
                 model_path=str(model_path),
                 message=f"MLX audio dependency is not installed: {exc}",
+                candidate_models=candidates,
             )
         except Exception as exc:  # noqa: BLE001 - status must not crash the API.
             return AdapterStatus(
@@ -78,12 +83,14 @@ class Qwen3TTSAdapter:
                 available=False,
                 model_path=str(model_path),
                 message=f"MLX audio is installed, but this process cannot use it yet: {exc}",
+                candidate_models=candidates,
             )
         return AdapterStatus(
             backend="mlx-audio",
             available=True,
             model_path=str(model_path),
             message="Qwen3-TTS model and MLX audio dependency were detected.",
+            candidate_models=candidates,
         )
 
     def generate(

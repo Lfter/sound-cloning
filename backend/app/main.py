@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import os
 import shutil
 import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
@@ -14,69 +15,91 @@ from .audio import AudioError
 from .service import VoiceStudioService
 
 
-app = FastAPI(title="Voice Patch Studio API", version="0.1.0")
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://127.0.0.1:5173", "http://localhost:5173", "tauri://localhost"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-service = VoiceStudioService()
+DEFAULT_CORS_ORIGINS = ("http://127.0.0.1:5173", "http://localhost:5173", "tauri://localhost")
+router = APIRouter()
 
 
 class CreateProjectPayload(BaseModel):
-    name: str = Field(default="剪辑补录项目")
+    name: str = Field(default="剪辑补录项目", max_length=120)
 
 
 class SaveScriptPayload(BaseModel):
-    text: str
-    voiceId: str = ""
+    text: str = Field(default="", max_length=40_000)
+    voiceId: str = Field(default="", max_length=80)
     controls: Dict[str, Any] = Field(default_factory=dict)
 
 
 class UpdateLinePayload(BaseModel):
-    voiceId: Optional[str] = None
+    voiceId: Optional[str] = Field(default=None, max_length=80)
     controls: Optional[Dict[str, Any]] = None
 
 
 class GeneratePayload(BaseModel):
-    projectId: str
-    lineIds: List[str] = Field(default_factory=list)
+    projectId: str = Field(min_length=1, max_length=80)
+    lineIds: List[str] = Field(default_factory=list, max_length=500)
 
 
 class ExportPayload(BaseModel):
-    projectId: str
-    name: str = ""
+    projectId: str = Field(min_length=1, max_length=80)
+    name: str = Field(default="", max_length=120)
 
 
-@app.get("/health")
-def health() -> Dict[str, Any]:
-    return service.health()
+def _cors_origins() -> List[str]:
+    configured = os.environ.get("VOICE_STUDIO_CORS_ORIGINS", "")
+    if not configured.strip():
+        return list(DEFAULT_CORS_ORIGINS)
+    return [origin.strip() for origin in configured.split(",") if origin.strip()]
 
 
-@app.get("/model-status")
-def model_status() -> Dict[str, Any]:
-    return service.model_status()
+def create_app(studio_service: Optional[VoiceStudioService] = None) -> FastAPI:
+    app = FastAPI(title="Voice Patch Studio API", version="0.1.0")
+    app.state.service = studio_service or VoiceStudioService()
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_cors_origins(),
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    app.include_router(router)
+    return app
 
 
-@app.post("/voices")
+def get_service(request: Request) -> VoiceStudioService:
+    return request.app.state.service
+
+
+def _not_found(exc: KeyError) -> HTTPException:
+    return HTTPException(status_code=404, detail=str(exc).strip("'"))
+
+
+@router.get("/health")
+def health(studio: VoiceStudioService = Depends(get_service)) -> Dict[str, Any]:
+    return studio.health()
+
+
+@router.get("/model-status")
+def model_status(studio: VoiceStudioService = Depends(get_service)) -> Dict[str, Any]:
+    return studio.model_status()
+
+
+@router.post("/voices")
 async def create_voice(
     file: UploadFile = File(...),
-    name: str = Form(...),
-    referenceText: str = Form(""),
-    language: str = Form("Chinese"),
-    consentNote: str = Form(""),
-    trimStartMs: int = Form(0),
-    trimDurationMs: int = Form(10_000),
+    name: str = Form(..., max_length=120),
+    referenceText: str = Form("", max_length=4_000),
+    language: str = Form("Chinese", max_length=40),
+    consentNote: str = Form("", max_length=1_000),
+    trimStartMs: int = Form(0, ge=0, le=600_000),
+    trimDurationMs: int = Form(10_000, ge=1_000, le=60_000),
+    studio: VoiceStudioService = Depends(get_service),
 ) -> Dict[str, Any]:
     suffix = Path(file.filename or "reference.wav").suffix or ".wav"
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         shutil.copyfileobj(file.file, tmp)
         tmp_path = Path(tmp.name)
     try:
-        return service.create_voice(
+        return studio.create_voice(
             name=name,
             source_audio_path=tmp_path,
             original_filename=file.filename or "reference.wav",
@@ -92,83 +115,86 @@ async def create_voice(
         tmp_path.unlink(missing_ok=True)
 
 
-@app.get("/voices")
-def list_voices() -> List[Dict[str, Any]]:
-    return service.list_voices()
+@router.get("/voices")
+def list_voices(studio: VoiceStudioService = Depends(get_service)) -> List[Dict[str, Any]]:
+    return studio.list_voices()
 
 
-@app.post("/projects")
-def create_project(payload: CreateProjectPayload) -> Dict[str, Any]:
-    return service.create_project(payload.name)
+@router.post("/projects")
+def create_project(payload: CreateProjectPayload, studio: VoiceStudioService = Depends(get_service)) -> Dict[str, Any]:
+    return studio.create_project(payload.name)
 
 
-@app.get("/projects")
-def list_projects() -> List[Dict[str, Any]]:
-    return service.list_projects()
+@router.get("/projects")
+def list_projects(studio: VoiceStudioService = Depends(get_service)) -> List[Dict[str, Any]]:
+    return studio.list_projects()
 
 
-@app.get("/projects/{project_id}")
-def get_project(project_id: str) -> Dict[str, Any]:
+@router.get("/projects/{project_id}")
+def get_project(project_id: str, studio: VoiceStudioService = Depends(get_service)) -> Dict[str, Any]:
     try:
-        return service.get_project(project_id)
+        return studio.get_project(project_id)
     except KeyError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise _not_found(exc) from exc
 
 
-@app.put("/projects/{project_id}/script")
-def save_script(project_id: str, payload: SaveScriptPayload) -> Dict[str, Any]:
+@router.put("/projects/{project_id}/script")
+def save_script(project_id: str, payload: SaveScriptPayload, studio: VoiceStudioService = Depends(get_service)) -> Dict[str, Any]:
     try:
-        return service.save_script(project_id, payload.text, payload.voiceId, payload.controls)
+        return studio.save_script(project_id, payload.text, payload.voiceId, payload.controls)
     except KeyError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise _not_found(exc) from exc
 
 
-@app.patch("/script-lines/{line_id}")
-def update_script_line(line_id: str, payload: UpdateLinePayload) -> Dict[str, Any]:
+@router.patch("/script-lines/{line_id}")
+def update_script_line(line_id: str, payload: UpdateLinePayload, studio: VoiceStudioService = Depends(get_service)) -> Dict[str, Any]:
     try:
-        return service.update_script_line(line_id, payload.voiceId, payload.controls)
+        return studio.update_script_line(line_id, payload.voiceId, payload.controls)
     except KeyError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise _not_found(exc) from exc
 
 
-@app.post("/generate")
-def generate(payload: GeneratePayload) -> Dict[str, Any]:
+@router.post("/generate")
+def generate(payload: GeneratePayload, studio: VoiceStudioService = Depends(get_service)) -> Dict[str, Any]:
     try:
-        return service.start_generation(payload.projectId, payload.lineIds)
+        return studio.start_generation(payload.projectId, payload.lineIds)
     except KeyError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise _not_found(exc) from exc
 
 
-@app.get("/jobs/{job_id}")
-def get_job(job_id: str) -> Dict[str, Any]:
+@router.get("/jobs/{job_id}")
+def get_job(job_id: str, studio: VoiceStudioService = Depends(get_service)) -> Dict[str, Any]:
     try:
-        return service.get_job(job_id)
+        return studio.get_job(job_id)
     except KeyError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise _not_found(exc) from exc
 
 
-@app.post("/clips/{clip_id}/select")
-def select_clip(clip_id: str) -> Dict[str, Any]:
+@router.post("/clips/{clip_id}/select")
+def select_clip(clip_id: str, studio: VoiceStudioService = Depends(get_service)) -> Dict[str, Any]:
     try:
-        return service.select_clip(clip_id)
+        return studio.select_clip(clip_id)
     except KeyError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise _not_found(exc) from exc
 
 
-@app.get("/clips/{clip_id}/audio")
-def clip_audio(clip_id: str) -> FileResponse:
+@router.get("/clips/{clip_id}/audio")
+def clip_audio(clip_id: str, studio: VoiceStudioService = Depends(get_service)) -> FileResponse:
     try:
-        path = service.clip_path(clip_id)
+        path = studio.clip_path(clip_id)
     except KeyError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise _not_found(exc) from exc
     if not path.exists():
         raise HTTPException(status_code=404, detail="Audio file is missing.")
     return FileResponse(path, media_type="audio/wav", filename=path.name)
 
 
-@app.post("/export")
-def export_project(payload: ExportPayload) -> Dict[str, Any]:
+@router.post("/export")
+def export_project(payload: ExportPayload, studio: VoiceStudioService = Depends(get_service)) -> Dict[str, Any]:
     try:
-        return service.export_project(payload.projectId, payload.name)
+        return studio.export_project(payload.projectId, payload.name)
     except KeyError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise _not_found(exc) from exc
+
+
+app = create_app()

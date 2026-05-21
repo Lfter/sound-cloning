@@ -8,7 +8,19 @@ import type {
   VoiceProfile
 } from "./types";
 
-export const API_BASE = "http://127.0.0.1:8787";
+const apiBaseFromEnv = (import.meta as ImportMeta & { readonly env?: Record<string, string | undefined> }).env?.VITE_API_BASE;
+
+export const API_BASE = (apiBaseFromEnv || "http://127.0.0.1:8787").replace(/\/+$/, "");
+
+export class ApiError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
@@ -24,11 +36,16 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
       const payload = await response.json();
       message = payload.detail ?? message;
     } catch {
-      // Keep the HTTP status text when the server returns non-JSON errors.
+      const text = await response.text().catch(() => "");
+      message = text || message;
     }
-    throw new Error(message);
+    throw new ApiError(message, response.status);
   }
-  return response.json() as Promise<T>;
+  if (response.status === 204) {
+    return undefined as T;
+  }
+  const text = await response.text();
+  return (text ? JSON.parse(text) : undefined) as T;
 }
 
 export function getModelStatus(): Promise<ModelStatus> {

@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import {
+  ApiError,
   audioUrl,
   createProject,
   createVoice,
@@ -64,33 +65,32 @@ export default function App() {
 
   const selectedVoice = useMemo(() => voices.find((voice) => voice.id === defaultVoiceId), [defaultVoiceId, voices]);
   const isGenerating = job?.status === "queued" || job?.status === "running";
+  const activeProjectId = project?.id ?? "";
+  const canGenerateProject = Boolean(project?.lines.length && voices.length && project.lines.every((line) => line.voiceId));
 
   useEffect(() => {
     void refreshAll();
   }, []);
 
   useEffect(() => {
-    if (!job || job.status === "done" || job.status === "error") {
-      if (job?.status === "done" && project) {
-        void refreshProject(project.id);
-      }
+    if (!job?.id || job.status === "done" || job.status === "error") {
       return;
     }
     const timer = window.setInterval(async () => {
       try {
         const nextJob = await getJob(job.id);
         setJob(nextJob);
-        if ((nextJob.status === "done" || nextJob.status === "error") && project) {
+        if ((nextJob.status === "done" || nextJob.status === "error") && activeProjectId) {
           setStatus(nextJob.status === "done" ? "生成完成" : "生成遇到错误");
           setError(nextJob.errors[0] ?? "");
-          await refreshProject(project.id);
+          await refreshProject(activeProjectId);
         }
       } catch (err) {
-        setError(`后端暂时没有响应：${String((err as Error).message ?? err)}`);
+        setError(`后端暂时没有响应：${formatError(err)}`);
       }
     }, 900);
     return () => window.clearInterval(timer);
-  }, [job, project]);
+  }, [job?.id, job?.status, activeProjectId]);
 
   async function refreshAll() {
     try {
@@ -106,13 +106,18 @@ export default function App() {
         await refreshProject(nextProjects[0].id);
       }
     } catch (err) {
-      setError(String((err as Error).message ?? err));
+      setError(formatError(err));
     }
   }
 
   async function refreshProject(projectId: string) {
     const nextProject = await getProject(projectId);
     setProject(nextProject);
+    setScriptText(nextProject.lines.map((line) => line.text).join("\n"));
+    const firstLineVoice = nextProject.lines.find((line) => line.voiceId)?.voiceId;
+    if (firstLineVoice) {
+      setDefaultVoiceId(firstLineVoice);
+    }
     setProjects((items) => {
       const exists = items.some((item) => item.id === nextProject.id);
       return exists ? items.map((item) => (item.id === nextProject.id ? nextProject : item)) : [nextProject, ...items];
@@ -127,7 +132,7 @@ export default function App() {
       setProjects((items) => [nextProject, ...items.filter((item) => item.id !== nextProject.id)]);
       setStatus("项目已创建");
     } catch (err) {
-      setError(String((err as Error).message ?? err));
+      setError(formatError(err));
     }
   }
 
@@ -160,7 +165,7 @@ export default function App() {
       setVoiceForm({ name: "", referenceText: "", consentNote: "", trimStartMs: 0, trimDurationMs: 10000 });
       setStatus("声音已入库");
     } catch (err) {
-      setError(String((err as Error).message ?? err));
+      setError(formatError(err));
     }
   }
 
@@ -175,23 +180,29 @@ export default function App() {
       setProject(nextProject);
       setStatus(`已保存 ${nextProject.lines.length} 行脚本`);
     } catch (err) {
-      setError(String((err as Error).message ?? err));
+      setError(formatError(err));
     }
   }
 
-  async function handleGenerate() {
+  async function handleGenerate(lineIds: string[] = []) {
     if (!project) {
       setError("请先创建项目。");
+      return;
+    }
+    const targetLines = lineIds.length ? project.lines.filter((line) => lineIds.includes(line.id)) : project.lines;
+    const firstMissingVoice = targetLines.find((line) => !line.voiceId);
+    if (firstMissingVoice) {
+      setError(`第 ${firstMissingVoice.lineIndex} 行还没有选择声音。`);
       return;
     }
     try {
       setError("");
       setExportResult(null);
-      const nextJob = await startGenerate(project.id);
+      const nextJob = await startGenerate(project.id, lineIds);
       setJob(nextJob);
-      setStatus("生成任务已开始");
+      setStatus(lineIds.length ? "单行生成任务已开始" : "批量生成任务已开始");
     } catch (err) {
-      setError(String((err as Error).message ?? err));
+      setError(formatError(err));
     }
   }
 
@@ -206,7 +217,7 @@ export default function App() {
       setExportResult(result);
       setStatus(`已导出 ${result.count} 条音频`);
     } catch (err) {
-      setError(String((err as Error).message ?? err));
+      setError(formatError(err));
     }
   }
 
@@ -224,7 +235,7 @@ export default function App() {
       );
       setStatus(`第 ${line.lineIndex} 行已保存`);
     } catch (err) {
-      setError(String((err as Error).message ?? err));
+      setError(formatError(err));
     }
   }
 
@@ -240,7 +251,7 @@ export default function App() {
           : current
       );
     } catch (err) {
-      setError(String((err as Error).message ?? err));
+      setError(formatError(err));
     }
   }
 
@@ -256,13 +267,15 @@ export default function App() {
   }
 
   const jobPercent = job && job.total ? Math.round((job.progress / job.total) * 100) : 0;
+  const modelName = model?.modelPath ? model.modelPath.split("/").slice(-1)[0] : "";
+  const modelEngine = model?.available ? `${model.backend} · ${modelName}` : "本地预览引擎";
 
   return (
     <main className="app-shell">
       <header className="topbar">
         <div>
           <h1>Voice Patch Studio</h1>
-          <p>{model?.available ? "Qwen3-TTS / MLX" : "本地预览引擎"} · {model?.message ?? status}</p>
+          <p>{modelEngine} · {model?.message ?? status}</p>
         </div>
         <button className="icon-button" title="刷新" onClick={() => void refreshAll()}>
           <RefreshCw size={18} />
@@ -417,7 +430,7 @@ export default function App() {
                 <Save size={16} />
                 保存脚本
               </button>
-              <button className="primary" onClick={() => void handleGenerate()} disabled={!project?.lines.length || !voices.length || isGenerating}>
+              <button className="primary" onClick={() => void handleGenerate()} disabled={!canGenerateProject || isGenerating}>
                 {job?.status === "running" ? <Loader2 className="spin" size={16} /> : <Sparkles size={16} />}
                 批量生成
               </button>
@@ -466,6 +479,9 @@ export default function App() {
                     <button className="icon-button" title="保存本行" onClick={() => void handleLineSave(line)}>
                       <SlidersHorizontal size={16} />
                     </button>
+                    <button className="icon-button" title="重生成本行" onClick={() => void handleGenerate([line.id])} disabled={!line.voiceId || isGenerating}>
+                      <Sparkles size={16} />
+                    </button>
                   </div>
                   {line.clips.length > 0 && (
                     <div className="clips">
@@ -490,6 +506,16 @@ export default function App() {
       <footer>{selectedVoice ? `默认声音：${selectedVoice.name}` : "未导入声音"} · 本地服务</footer>
     </main>
   );
+}
+
+function formatError(error: unknown): string {
+  if (error instanceof ApiError) {
+    return `${error.status}: ${error.message}`;
+  }
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
 }
 
 function ControlSlider(props: {

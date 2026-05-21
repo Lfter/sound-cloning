@@ -4,19 +4,16 @@ import unittest
 from fastapi.testclient import TestClient
 
 from backend.app import main as api_module
-from helpers import create_voice, make_service, write_reference
+from helpers import make_service, write_reference
 
 
 class ApiTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.service = make_service(self.root)
-        self.original_service = api_module.service
-        api_module.service = self.service
-        self.client = TestClient(api_module.app)
+        self.client = TestClient(api_module.create_app(self.service))
 
     def tearDown(self):
-        api_module.service = self.original_service
         self.tmp.cleanup()
 
     @property
@@ -34,6 +31,7 @@ class ApiTests(unittest.TestCase):
         model = self.client.get("/model-status")
         self.assertEqual(model.status_code, 200)
         self.assertFalse(model.json()["available"])
+        self.assertIn("candidateModels", model.json())
 
     def test_project_routes_save_script_and_report_missing_project(self):
         created = self.client.post("/projects", json={"name": "API Project"})
@@ -50,6 +48,12 @@ class ApiTests(unittest.TestCase):
 
         missing = self.client.get("/projects/not-found")
         self.assertEqual(missing.status_code, 404)
+        self.assertEqual(missing.json()["detail"], "Project not found: not-found")
+
+    def test_request_validation_rejects_unbounded_inputs(self):
+        response = self.client.post("/projects", json={"name": "x" * 121})
+
+        self.assertEqual(response.status_code, 422)
 
     def test_voice_upload_and_clip_audio_route(self):
         reference = write_reference(self.root / "api-reference.wav")

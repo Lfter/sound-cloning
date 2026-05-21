@@ -268,7 +268,7 @@ class VoiceStudioService:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         folder_name = export_name.strip() or f"{project['name']}_{timestamp}"
         safe_folder = "".join(ch for ch in folder_name if ch not in '\\/:*?"<>|').strip() or f"export_{timestamp}"
-        export_dir = self.paths.export_dir / safe_folder
+        export_dir = _unique_dir(self.paths.export_dir / safe_folder)
         export_dir.mkdir(parents=True, exist_ok=True)
 
         manifest_rows = []
@@ -552,3 +552,13 @@ def _preferred_clip(line: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         if clip["id"] == selected_id:
             return clip
     return clips[0]
+
+
+def _unique_dir(path: Path) -> Path:
+    if not path.exists():
+        return path
+    for index in range(2, 1_000):
+        candidate = path.with_name(f"{path.name}_{index}")
+        if not candidate.exists():
+            return candidate
+    return path.with_name(f"{path.name}_{uuid.uuid4().hex[:8]}")
